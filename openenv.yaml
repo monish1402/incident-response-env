@@ -1,0 +1,167 @@
+# =============================================================================
+# openenv.yaml — Incident Response OpenEnv Metadata
+# =============================================================================
+# Validated by: openenv validate
+# Spec version: 1.0
+# =============================================================================
+
+name: incident-response-env
+version: "1.0.0"
+description: >
+  A real-world OpenEnv environment where an AI agent acts as an on-call
+  Site Reliability Engineer (SRE). The agent must diagnose and resolve
+  production incidents across a simulated microservices topology — the
+  same class of tasks performed daily at companies like Google, Meta,
+  and Netflix. Requires multi-hop reasoning, distinguishing red-herring
+  signals from the true root cause, and applying the correct remediation
+  action under time pressure.
+
+author: monish211205
+tags:
+  - openenv
+  - incident-response
+  - sre
+  - devops
+  - site-reliability-engineering
+  - real-world
+  - multi-step-reasoning
+
+observation_space:
+  type: dict
+  description: >
+    Full snapshot of the production system state visible to the on-call agent.
+  fields:
+    services:
+      type: list[ServiceNode]
+      description: >
+        Current health metrics for every service in the topology.
+        Each node includes: status (healthy/degraded/down), error_rate,
+        latency_p99_ms, cpu_utilisation, memory_utilisation,
+        recent_deployment flag, and dependency list.
+    active_alerts:
+      type: list[Alert]
+      description: >
+        All currently firing monitoring alerts (PagerDuty-style).
+        Each alert has: alert_id, service, severity (P1–P4), message.
+    last_diagnostic:
+      type: DiagnosticResult | null
+      description: >
+        Log tail and error summary from the most recent INVESTIGATE action.
+        Null until the agent investigates at least one service.
+    incident_title:
+      type: str
+      description: One-line incident description shown to the on-call agent.
+    incident_severity:
+      type: str
+      enum: [P1, P2, P3, P4]
+    step_count:
+      type: int
+      description: Steps taken in the current episode.
+    max_steps:
+      type: int
+      description: Maximum steps before auto-termination (default 10).
+    time_to_resolve_budget:
+      type: int
+      description: >
+        Notional minutes remaining before SLA breach.
+        Decrements by 5 each step.
+    action_history:
+      type: list[str]
+      description: Human-readable log of all actions taken this episode.
+    reward:
+      type: float | null
+      description: Reward from the last action. Null on reset.
+    done:
+      type: bool
+      description: True when the episode has terminated.
+
+action_space:
+  type: dict
+  description: >
+    Action submitted by the agent each step. Mirrors real SRE operations.
+  fields:
+    action_type:
+      type: str
+      enum: [investigate, restart, rollback, scale_up, escalate, resolve]
+      description: >
+        investigate : Read logs and diagnostics for a service.
+        restart     : Restart a service (clears crash loops / transient faults).
+        rollback    : Roll back the last deployment (for bad deploys).
+        scale_up    : Add replicas (for resource exhaustion / traffic spikes).
+        escalate    : Page a human engineer (ends episode, partial credit).
+        resolve     : Declare incident resolved (ends episode).
+    target_service:
+      type: str
+      description: Exact name of the service to act upon.
+    rationale:
+      type: str
+      min_length: 10
+      description: >
+        Agent's reasoning for taking this action. Must be at least 10 chars.
+        Used for partial-credit scoring on the reasoning quality component.
+
+tasks:
+  - id: easy_incident_triage
+    description: >
+      Single-service failure with clear signals. The agent must investigate
+      the right service and apply the correct remediation.
+    difficulty: easy
+    reward_range: [0.0, 1.0]
+    max_steps: 10
+
+  - id: medium_incident_triage
+    description: >
+      Multi-hop cascading failure. Requires 2+ investigate steps to trace
+      the root cause through the service dependency chain.
+    difficulty: medium
+    reward_range: [0.0, 1.0]
+    max_steps: 10
+
+  - id: hard_incident_triage
+    description: >
+      Site-wide degradation with multiple misleading signals (red herrings).
+      Agent must distinguish symptom services from the true root cause under
+      a tight time budget.
+    difficulty: hard
+    reward_range: [0.0, 1.0]
+    max_steps: 10
+
+reward:
+  range: [0.0, 1.0]
+  dense: true
+  description: >
+    Reward is NOT binary end-of-episode. Dense signals fire every step.
+
+    Components (episode-end reward, weighted sum):
+      root_cause_identification : 0.35
+        Full credit if the agent investigated the root-cause service.
+        Partial credit (0.40) if only a direct dependency was investigated.
+      correct_remediation       : 0.30
+        Full credit for applying the correct fix to the correct service.
+        Partial credit (0.50) for a plausible-but-suboptimal action.
+      resolution_speed          : 0.20
+        Higher score for fewer steps; bonus if time budget not breached.
+      reasoning_quality         : 0.15
+        Scores rationale strings for specificity — service name mentions,
+        metric references, and root-cause keyword usage.
+
+    Per-step rewards (dense feedback, contributes 10% of final reward):
+      +0.10 : Investigating the root-cause service
+      +0.05 : Investigating a direct dependency of the root cause
+      +0.12 : Applying the correct fix to the root-cause service
+      +0.02 : Any investigation action (exploration bonus)
+
+    Penalties:
+      -0.10 : Escalating without investigating the root cause
+      -0.05 : Destructive action (restart/rollback) on a healthy service
+
+endpoints:
+  health:    GET  /health
+  reset:     POST /reset
+  step:      POST /step
+  state:     GET  /state
+  tasks:     GET  /tasks
+  grader:    POST /grader
+  baseline:  POST /baseline
+  schema:    GET  /schema
+  websocket: WS   /ws
