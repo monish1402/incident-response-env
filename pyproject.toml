@@ -30,7 +30,7 @@ baseline = [
 
 [project.scripts]
 # Convenience entry point to start the server
-incident-response-env = "server.app:main"
+server = "server.app:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["server"]
